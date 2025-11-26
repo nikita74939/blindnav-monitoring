@@ -197,11 +197,7 @@
 
         // ACK SOS
         function acknowledgeSOS() {
-            let confirmReset = prompt("Ketik 'RESET' untuk mengonfirmasi bahwa Anda telah mengambil tindakan dan mereset status SOS Pengguna menjadi AMAN.");
-            
-            if (confirmReset && confirmReset.toUpperCase() === "RESET") {
-                 // Path ke /devices/pengguna/status_sos
-                db.ref("devices/pengguna/status_sos").set(false)
+            db.ref("devices/pengguna/status_sos").set(false)
                  .then(() => {
                      console.log("Status SOS berhasil direset oleh pengawas.");
                      const btn = document.getElementById('acknowledge-btn');
@@ -219,9 +215,6 @@
                       // Menggunakan console.log sebagai pengganti alert()
                       console.log("Gagal mereset status SOS. Cek koneksi atau izin database.");
                  });
-            } else if (confirmReset !== null) {
-                 console.log("Pembatalan reset SOS.");
-            }
         }
 
         // START
@@ -232,4 +225,5 @@
     </script>
 
 </body>
+
 </html>
