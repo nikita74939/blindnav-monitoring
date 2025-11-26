@@ -197,8 +197,6 @@
 
         // ACK SOS
         function acknowledgeSOS() {
-            let confirmReset = prompt("Ketik 'RESET' untuk mengonfirmasi bahwa Anda telah mengambil tindakan dan mereset status SOS Pengguna menjadi AMAN.");
-            
             db.ref("devices/pengguna/status_sos").set(false)
             .then(() => {
                      console.log("Status SOS berhasil direset oleh pengawas.");
