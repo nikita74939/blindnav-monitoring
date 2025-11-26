@@ -5,19 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BlindNav - Halaman Pengawas</title>
 
-    <!-- Tailwind -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- Google Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
-    <!-- FIREBASE -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-
-    <!-- LEAFLET (MAP GRATIS TANPA API KEY) -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <!-- GOOGLE MAPS API -->
+    <!-- PENTING: Format kunci API telah diperbaiki menjadi '&key=AIzaSy...' -->
+    <script src="https://maps.googleapis.com/maps/api/js?v=beta&callback=mapLoaded&key=AIzaSyBm8fK7J4qfYK0063geLGK8WVXTgkAI9fg" defer></script>
 
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f7f9fc; }
@@ -34,6 +30,12 @@
             0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
             70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
             100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        
+        /* Memastikan peta terlihat di seluruh area container */
+        #map {
+            width: 100%;
+            height: 100%;
         }
     </style>
 </head>
@@ -58,7 +60,8 @@
 
             <!-- MAP -->
             <div class="lg:col-span-2 bg-white rounded-xl shadow-2xl overflow-hidden h-[60vh] lg:h-[70vh]">
-                <div id="map" class="w-full h-full"></div>
+                <!-- Kontainer untuk Google Maps -->
+                <div id="map"></div>
             </div>
 
             <!-- PANEL SAMPING -->
@@ -67,7 +70,7 @@
                 <!-- SOS CARD -->
                 <div id="sos-status-card" class="sos-alert-box p-6 rounded-xl shadow-lg border-l-8 border-green-500 bg-white">
                     <h2 class="text-2xl font-bold mb-2 text-gray-800">STATUS PENGGUNA</h2>
-                    <p class="text-sm text-gray-500 mb-1">Nama: <span id="pengguna-nama" class="font-semibold text-gray-700">Memuat...</span></p>
+                    <p class="text-sm text-gray-500 mb-1">Nama: <span id="pengguna-nama" class="font-semibold text-gray-700"></span></p>
                     <div id="sos-status-indicator" class="text-xl font-bold text-green-500">
                         AMAN
                     </div>
@@ -76,96 +79,150 @@
                 <!-- ACK BUTTON -->
                 <button id="acknowledge-btn" onclick="acknowledgeSOS()" disabled
                     class="w-full py-4 px-6 rounded-xl text-lg font-bold
-                           bg-gray-400 text-white cursor-not-allowed shadow-md">
+                            bg-gray-400 text-white cursor-not-allowed shadow-md transition duration-150">
                     SAYA SUDAH TAHU
                 </button>
+                
+                <div id="auth-status" class="text-center text-sm text-gray-600">
+                    Menunggu Peta dimuat...
+                </div>
 
             </div>
         </div>
     </main>
 
 
-    <!-- SCRIPT FIREBASE + LEAFLET JS -->
-    <script>
+    <!-- SCRIPT FIREBASE + GOOGLE MAPS JS -->
+    <script type="module">
         // Mengganti alert() dan confirm() agar tidak muncul di iFrame
         window.alert = (message) => console.log("Alert diblokir:", message);
         window.confirm = (message) => { console.log("Konfirmasi diblokir:", message); return false; };
 
-        // FIREBASE CONFIG
-        const firebaseConfig = {
-            apiKey: "AIzaSyDNrYMOY4FBHlSeGDNBaboktNdF5chqGfI",
-            authDomain: "blind-nav2.firebaseapp.com",
-            databaseURL: "https://blind-nav2-default-rtdb.asia-southeast1.firebasedatabase.app",
-            projectId: "blind-nav2",
-            storageBucket: "blind-nav2.appspot.com",
-            messagingSenderId: "558883900786",
-            appId: "1:558883900786:web:bd8c2f27d9f624b1f0a1eb"
-        };
+        // FIREBASE IMPORTS (MODULAR SDK)
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
+        
+        // --- FIREBASE SETUP ---
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        let app, auth, db;
+        
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getDatabase(app);
+        } catch(e) {
+            console.error("Gagal menginisialisasi Firebase:", e);
+        }
 
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.database();
-
-        // MAP LEAFLET
+        let isAuthenticated = false;
         let map;
         let userMarker;
-        // Koordinat default (Yogyakarta area)
-        const DEFAULT_POS = [0, 0]; 
+        // Koordinat default (Yogyakarta)
+        const DEFAULT_POS = [-7.781878677117695, 110.38573265053442]; 
 
-        function initLeaflet() {
-            // Inisialisasi peta dan fokus pada posisi default
-            map = L.map('map').setView(DEFAULT_POS, 15);
+        // Fungsi yang dipanggil oleh Google Maps API setelah pustaka dimuat
+        window.mapLoaded = function() {
+            initMap();
+            authenticate();
+        };
 
-            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-                maxZoom: 19
-            }).addTo(map);
+        // Otentikasi
+        async function authenticate() {
+            const statusEl = document.getElementById("auth-status");
+            statusEl.textContent = "Memuat autentikasi...";
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                    statusEl.textContent = "Autentikasi: Masuk sebagai Pengawas.";
+                } else {
+                    await signInAnonymously(auth);
+                    statusEl.textContent = "Autentikasi: Masuk secara Anonim.";
+                }
+                isAuthenticated = true;
+                listenData(); // Mulai mendengarkan data setelah auth
+            } catch (error) {
+                console.error("Firebase Auth failed:", error);
+                statusEl.textContent = "Autentikasi Gagal. Cek konfigurasi.";
+            }
+        }
 
-            // Marker awal diletakkan pada DEFAULT_POS. Posisi sebenarnya akan di-update oleh listenData()
-            userMarker = L.marker(DEFAULT_POS, {
-                title: 'Lokasi Pengguna',
-                icon: L.divIcon({
-                    className: 'custom-marker',
-                    html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#0D6E9F" width="40px" height="40px"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>',
-                    iconSize: [40, 40],
-                    iconAnchor: [20, 40]
-                })
-            }).addTo(map);
+        // --- GOOGLE MAPS INITIALIZATION ---
+        function initMap() {
+            // Inisialisasi peta Google Maps
+            const mapOptions = {
+                center: { lat: DEFAULT_POS[0], lng: DEFAULT_POS[1] },
+                zoom: 15,
+                mapTypeId: 'roadmap',
+                fullscreenControl: false,
+                streetViewControl: false,
+                mapTypeControl: false,
+            };
+            // Pastikan google object tersedia sebelum inisialisasi
+            if (typeof google !== 'undefined' && google.maps) {
+                 map = new google.maps.Map(document.getElementById('map'), mapOptions);
+
+                // Marker awal
+                userMarker = new google.maps.Marker({
+                    position: { lat: DEFAULT_POS[0], lng: DEFAULT_POS[1] },
+                    map: map,
+                    title: 'Lokasi Pengguna',
+                    icon: {
+                        // Menggunakan SVG untuk marker kustom
+                        url: 'data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%230D6E9F" width="40px" height="40px"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>',
+                        scaledSize: new google.maps.Size(40, 40),
+                        anchor: new google.maps.Point(20, 40)
+                    }
+                });
+            } else {
+                console.error("Google Maps API belum dimuat.");
+            }
         }
 
         // VALIDASI KOORDINAT
         function validCoord(val) {
-            // Memastikan nilai adalah angka yang valid, bukan null/undefined, dan bukan 0
             const num = parseFloat(val);
             return !isNaN(num) && num !== 0;
         }
 
         // LISTENER REALTIME
         function listenData() {
-            // Mengambil data dari node 'devices/pengguna'
-            db.ref("devices/pengguna").on("value", snap => {
-                let data = snap.val();
+            if (!isAuthenticated || !db) return;
+
+            // Mendengarkan data Pengguna
+            onValue(ref(db, "devices/pengguna"), (snapshot) => {
+                let data = snapshot.val();
                 if (!data) return;
 
                 // 1. Update Nama Pengguna
                 document.getElementById("pengguna-nama").textContent = data.nama || "Memuat...";
 
-                // 2. Update Map Marker
+                // 2. Update Map Marker (Google Maps)
                 const lat = data.lat;
                 const lon = data.lon;
                 
-                if (validCoord(lat) && validCoord(lon)) {
-                    // Pastikan koordinat diubah ke tipe float yang benar
-                    let newPos = [parseFloat(lat), parseFloat(lon)];
-                    userMarker.setLatLng(newPos);
-                    map.setView(newPos, 16); // Fokuskan peta ke posisi baru dengan zoom 16
+                if (validCoord(lat) && validCoord(lon) && userMarker && map) {
+                    let newPos = { lat: parseFloat(lat), lng: parseFloat(lon) };
+                    userMarker.setPosition(newPos);
+                    map.setCenter(newPos);
+                    map.setZoom(16); // Fokuskan peta ke posisi baru dengan zoom 16
                 }
                 
                 // 3. Update SOS Status
                 updateSOS(data.status_sos === true);
             });
+
+            // Mendengarkan data Pengawas (untuk nama di navbar)
+            onValue(ref(db, "devices/pengawas"), (snapshot) => {
+                let data = snapshot.val();
+                if (!data) return;
+
+                document.getElementById("supervisor-name").textContent =
+                    "Halo, " + (data.nama ? data.nama.charAt(0).toUpperCase() + data.nama.slice(1) : "Pengawas") + "!";
+            });
         }
 
-        // UPDATE SOS UI
+        // UPDATE SOS UI (Tidak berubah)
         function updateSOS(isSOS) {
             const ind = document.getElementById("sos-status-indicator");
             const card = document.getElementById("sos-status-card");
@@ -195,41 +252,35 @@
             }
         }
 
-        // ACK SOS
-        function acknowledgeSOS() {
-            db.ref("devices/pengguna/status_sos").set(false)
+        // ACK SOS (Fungsi Global)
+        window.acknowledgeSOS = function() {
+            if (!isAuthenticated || !db) {
+                console.error("Belum terautentikasi atau Firebase belum siap untuk mereset SOS.");
+                return;
+            }
+            
+            // Menggunakan set untuk mereset status_sos menjadi false
+            set(ref(db, "devices/pengguna/status_sos"), false)
             .then(() => {
-                     console.log("Status SOS berhasil direset oleh pengawas.");
-                     const btn = document.getElementById('acknowledge-btn');
-                     btn.textContent = 'SOS Direset!';
-                     btn.classList.remove('bg-red-600', 'hover:bg-red-700');
-                     btn.classList.add('bg-green-600');
-                     setTimeout(() => {
-                        btn.textContent = 'SAYA SUDAH TAHU';
-                        btn.classList.remove('bg-green-600');
-                        btn.classList.add('bg-gray-400');
-                     }, 2000);
-                 })
-                 .catch(error => {
-                      console.error("Gagal mereset SOS:", error);
-                      // Menggunakan console.log sebagai pengganti alert()
-                      console.log("Gagal mereset status SOS. Cek koneksi atau izin database.");
-                 });
+                console.log("Status SOS berhasil direset oleh pengawas.");
+                const btn = document.getElementById('acknowledge-btn');
+                btn.textContent = 'SOS Direset!';
+                btn.classList.remove('bg-red-600', 'hover:bg-red-700');
+                btn.classList.add('bg-green-600');
+                setTimeout(() => {
+                    btn.textContent = 'SAYA SUDAH TAHU';
+                    btn.classList.remove('bg-green-600');
+                    btn.classList.add('bg-gray-400'); // UI akan di-update lagi oleh listenData
+                }, 2000);
+            })
+            .catch(error => {
+                console.error("Gagal mereset SOS:", error);
+                console.log("Gagal mereset status SOS. Cek koneksi atau izin database.");
+            });
         }
-
-        db.ref("devices/pengawas").on("value", snap => {
-            let data = snap.val();
-            if (!data) return;
-
-            document.getElementById("supervisor-name").textContent =
-                "Halo, " + (data.nama ? data.nama.charAt(0).toUpperCase() + data.nama.slice(1) : "Pengawas") + "!";
-        });
-
-        // START
-        window.onload = () => {
-            initLeaflet();
-            listenData();
-        };
+        
+        // Catatan: Fungsi autentikasi dan inisialisasi data kini dipanggil setelah Google Maps dimuat
+        // melalui callback 'mapLoaded' yang ada di tag <script> Google Maps.
     </script>
 
 </body>
