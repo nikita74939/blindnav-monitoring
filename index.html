@@ -142,7 +142,7 @@
 
         // LISTENER REALTIME
         function listenData() {
-            db.ref("pengguna").on("value", snap => {
+            db.ref("devices/pengguna").on("value", snap => {
                 let data = snap.val();
                 if (!data) return;
 
@@ -209,3 +209,4 @@
 
 </body>
 </html>
+
