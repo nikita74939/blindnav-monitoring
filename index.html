@@ -67,9 +67,26 @@
                 <!-- SOS CARD -->
                 <div id="sos-status-card" class="sos-alert-box p-6 rounded-xl shadow-lg border-l-8 border-green-500 bg-white">
                     <h2 class="text-2xl font-bold mb-2 text-gray-800">STATUS PENGGUNA</h2>
-                    <p class="text-sm text-gray-500 mb-1">Nama: <span id="pengguna-nama" class="font-semibold text-gray-700">Memuat...</span></p>
+                    <p class="text-sm text-gray-500 mb-1">Nama: <span id="pengguna-nama" class="font-semibold text-gray-700">Yuli</span></p>
                     <div id="sos-status-indicator" class="text-xl font-bold text-green-500">
                         AMAN
+                    </div>
+                </div>
+
+                <!-- SENSOR DATA -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border-l-8 border-[#0D6E9F]">
+                    <h2 class="text-2xl font-bold mb-4 text-[#0D6E9F]">DATA SENSOR LIVE</h2>
+
+                    <div class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 font-medium">Latitude:<span id="pengguna-lat" class="font-semibold text-gray-700">-7.782324330679297</span></p>
+                            <span id="pengguna-lat" class="font-semibold text-gray-800">
+                        </div>
+
+                        <div class="flex justify-between">
+                            <span class="text-gray-600 font-medium">Longitude:<span id="pengguna-lon" class="font-semibold text-gray-700">110.41574817700014</span></p>
+                            <span id="pengguna-lon" class="font-semibold text-gray-800">
+                        </div>
                     </div>
                 </div>
 
@@ -87,10 +104,6 @@
 
     <!-- SCRIPT FIREBASE + LEAFLET JS -->
     <script>
-        // Mengganti alert() dan confirm() agar tidak muncul di iFrame
-        window.alert = (message) => console.log("Alert diblokir:", message);
-        window.confirm = (message) => { console.log("Konfirmasi diblokir:", message); return false; };
-
         // FIREBASE CONFIG
         const firebaseConfig = {
             apiKey: "AIzaSyDNrYMOY4FBHlSeGDNBaboktNdF5chqGfI",
@@ -108,59 +121,45 @@
         // MAP LEAFLET
         let map;
         let userMarker;
-        // Koordinat default (Yogyakarta area)
-        const DEFAULT_POS = [0, 0]; 
+        const DEFAULT_POS = [-7.781878, 110.385732];
 
         function initLeaflet() {
-            // Inisialisasi peta dan fokus pada posisi default
             map = L.map('map').setView(DEFAULT_POS, 15);
 
             L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
                 maxZoom: 19
             }).addTo(map);
 
-            // Marker awal diletakkan pada DEFAULT_POS. Posisi sebenarnya akan di-update oleh listenData()
-            userMarker = L.marker(DEFAULT_POS, {
-                title: 'Lokasi Pengguna',
-                icon: L.divIcon({
-                    className: 'custom-marker',
-                    html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#0D6E9F" width="40px" height="40px"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>',
-                    iconSize: [40, 40],
-                    iconAnchor: [20, 40]
-                })
-            }).addTo(map);
+            // Marker awal
+            userMarker = L.marker([-7.7823214, 110.4153958]).addTo(map);
+
         }
 
         // VALIDASI KOORDINAT
         function validCoord(val) {
-            // Memastikan nilai adalah angka yang valid, bukan null/undefined, dan bukan 0
-            const num = parseFloat(val);
-            return !isNaN(num) && num !== 0;
+            return val !== undefined && val !== null && !isNaN(val) && val !== 0;
         }
 
         // LISTENER REALTIME
         function listenData() {
-            // Mengambil data dari node 'devices/pengguna'
             db.ref("devices/pengguna").on("value", snap => {
                 let data = snap.val();
                 if (!data) return;
 
-                // 1. Update Nama Pengguna
-                document.getElementById("pengguna-nama").textContent = data.nama || "Memuat...";
+                document.getElementById("pengguna-nama").textContent = data.nama || "-";
+                document.getElementById("pengguna-lat").textContent = data.lat || "-";
+                document.getElementById("pengguna-lon").textContent = data.lon || "-";
+                document.getElementById("distance-value").textContent =
+                    data.distance !== undefined ? data.distance + " cm" : "N/A";
 
-                // 2. Update Map Marker
-                const lat = data.lat;
-                const lon = data.lon;
-                
-                if (validCoord(lat) && validCoord(lon)) {
-                    // Pastikan koordinat diubah ke tipe float yang benar
-                    let newPos = [parseFloat(lat), parseFloat(lon)];
+                // UPDATE MAP
+                if (validCoord(data.lat) && validCoord(data.lon)) {
+                    let newPos = [data.lat, data.lon];
                     userMarker.setLatLng(newPos);
-                    map.setView(newPos, 16); // Fokuskan peta ke posisi baru dengan zoom 16
+                    map.setView(newPos);
                 }
-                
-                // 3. Update SOS Status
+
+                // SOS
                 updateSOS(data.status_sos === true);
             });
         }
@@ -174,48 +173,41 @@
             if (isSOS) {
                 ind.textContent = "SOS DARURAT!";
                 ind.classList.replace("text-green-500", "text-red-600");
-                card.classList.add("sos-active", "bg-red-50");
+                card.classList.add("sos-active");
                 card.classList.replace("border-green-500", "border-red-500");
 
                 ack.disabled = false;
                 ack.classList.replace("bg-gray-400", "bg-red-600");
                 ack.classList.remove("cursor-not-allowed");
-                ack.classList.add("hover:bg-red-700");
 
             } else {
                 ind.textContent = "AMAN";
                 ind.classList.replace("text-red-600", "text-green-500");
-                card.classList.remove("sos-active", "bg-red-50");
+                card.classList.remove("sos-active");
                 card.classList.replace("border-red-500", "border-green-500");
 
                 ack.disabled = true;
                 ack.classList.replace("bg-red-600", "bg-gray-400");
                 ack.classList.add("cursor-not-allowed");
-                ack.classList.remove("hover:bg-red-700");
             }
         }
 
         // ACK SOS
         function acknowledgeSOS() {
-            db.ref("devices/pengguna/status_sos").set(false)
-                 .then(() => {
-                     console.log("Status SOS berhasil direset oleh pengawas.");
-                     const btn = document.getElementById('acknowledge-btn');
-                     btn.textContent = 'SOS Direset!';
-                     btn.classList.remove('bg-red-600', 'hover:bg-red-700');
-                     btn.classList.add('bg-green-600');
-                     setTimeout(() => {
-                        btn.textContent = 'SAYA SUDAH TAHU';
-                        btn.classList.remove('bg-green-600');
-                        btn.classList.add('bg-gray-400');
-                     }, 2000);
-                 })
-                 .catch(error => {
-                      console.error("Gagal mereset SOS:", error);
-                      // Menggunakan console.log sebagai pengganti alert()
-                      console.log("Gagal mereset status SOS. Cek koneksi atau izin database.");
-                 });
+            let confirmReset = prompt("Ketik RESET untuk mereset SOS:");
+            if (confirmReset === "RESET") {
+                db.ref("pengguna/status_sos").set(false);
+            }
         }
+
+        db.ref("devices/pengawas").on("value", snap => {
+            let data = snap.val();
+            if (!data) return;
+
+            document.getElementById("supervisor-name").textContent =
+                "Halo, " + (data.nama ? data.nama.charAt(0).toUpperCase() + data.nama.slice(1) : "Pengawas") + "!";
+        });
+
 
         // START
         window.onload = () => {
@@ -225,5 +217,5 @@
     </script>
 
 </body>
-
 </html>
+
